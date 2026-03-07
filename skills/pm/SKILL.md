@@ -118,14 +118,23 @@ While implementing, reviewing, or refactoring code, you may notice problems
 unrelated to your current task (dead code, broken edge cases, missing error
 handling, performance issues, security concerns, test gaps, etc).
 
-1. Create a GitHub issue for it immediately:
-   `gh issue create --title "<what's wrong>" --label "bug,P2" --body "Discovered while working on #<active_issue>. <one-line description>"`
-2. Do NOT fix it now (unless it blocks your current work)
-3. Mention it briefly: "Found an issue with X, logged #XX."
-4. Continue your current task
+**Before creating an issue, check for duplicates and dismissed items:**
+1. Search closed issues: `gh issue list [--repo <target>] --state closed --search "<short description>" --limit 5 --json number,title,labels,stateReason`
+2. If a matching issue exists with label `wontfix` or `not-a-bug`, or was closed as `not planned`: **do NOT recreate it**. The user already reviewed and dismissed it.
+3. If no match, create the issue:
+   `gh issue create [--repo <target>] --title "<what's wrong>" --label "bug,P2" --body "Discovered while working on #<active_issue>. <one-line description>"`
+4. Do NOT fix it now (unless it blocks your current work)
+5. Mention it briefly: "Found an issue with X, logged #XX."
+6. Continue your current task
 
 This keeps the backlog growing organically from real discoveries, not just
 user reports. Prioritize by severity: security issues get P1, cosmetic get P3.
+
+### When the user dismisses an issue (not a bug, intentional, by design):
+
+1. Close with reason: `gh issue close <number> [--repo <target>] --reason "not planned" --comment "<user's reason>"`
+2. Add the `wontfix` label: `gh issue edit <number> [--repo <target>] --add-label "wontfix"`
+3. This prevents the same issue from being re-created in future sessions
 
 ### When YOU finish work and tests fail on unrelated code:
 
@@ -162,6 +171,8 @@ gh label create bug --color "d73a4a" --description "Something broken" --force
 gh label create feature --color "1d76db" --description "New capability" --force
 gh label create chore --color "5319e7" --description "Maintenance and cleanup" --force
 gh label create epic --color "b60205" --description "Multi-issue effort" --force
+gh label create wontfix --color "ffffff" --description "Dismissed, will not fix" --force
+gh label create not-a-bug --color "e4e669" --description "Intentional behavior" --force
 ```
 
 ## Rules
