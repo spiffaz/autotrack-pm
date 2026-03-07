@@ -20,6 +20,7 @@ find_project_root() {
 
 PROJECT_ROOT="$(find_project_root)"
 STATE_FILE="$PROJECT_ROOT/.claude/pm-state.json"
+GLOBAL_CONFIG="$HOME/.claude/pm-config.json"
 INPUT=$(cat)
 
 # Read state file
@@ -64,6 +65,47 @@ detect_repo() {
   gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo ""
 }
 
+# Get project name (directory name as fallback)
+get_project_name() {
+  local repo
+  repo=$(get_state "repo")
+  if [[ -n "$repo" && "$repo" != "None" ]]; then
+    basename "$repo"
+  else
+    basename "$PROJECT_ROOT"
+  fi
+}
+
+# Read global config
+get_global_config() {
+  local field="$1"
+  if [[ -f "$GLOBAL_CONFIG" ]]; then
+    python3 -c "import sys,json; d=json.load(open('$GLOBAL_CONFIG')); print(d.get('$field','') or '')" 2>/dev/null
+  else
+    echo ""
+  fi
+}
+
+# Resolve target repo for gh commands
+resolve_repo_flag() {
+  local tracking
+  tracking=$(get_state "tracking")
+  if [[ "$tracking" == "local" ]]; then
+    echo ""  # no --repo flag needed, uses current repo
+  elif [[ "$tracking" == "off" ]]; then
+    echo "OFF"
+  else
+    # hub mode (default)
+    local hub
+    hub=$(get_global_config "hub_repo")
+    if [[ -n "$hub" ]]; then
+      echo "--repo $hub"
+    else
+      echo ""  # no hub configured, fall back to local
+    fi
+  fi
+}
+
 # --- Event Handlers ---
 
 handle_session_start() {
@@ -74,10 +116,11 @@ handle_session_start() {
   if [[ ! -f "$STATE_FILE" ]]; then
     local repo
     repo=$(detect_repo)
-    if [[ -n "$repo" ]]; then
-      mkdir -p "$(dirname "$STATE_FILE")"
-      echo "{\"repo\":\"$repo\",\"active_issue\":null,\"sprint_label\":null}" > "$STATE_FILE"
-    fi
+    local default_tracking
+    default_tracking=$(get_global_config "default_tracking")
+    default_tracking="${default_tracking:-hub}"
+    mkdir -p "$(dirname "$STATE_FILE")"
+    echo "{\"repo\":\"${repo:-null}\",\"active_issue\":null,\"sprint_label\":null,\"tracking\":\"$default_tracking\"}" > "$STATE_FILE"
   fi
 
   local active_issue
@@ -86,11 +129,23 @@ handle_session_start() {
   # Build context to inject
   local context=""
 
+  local tracking
+  tracking=$(get_state "tracking")
+  if [[ "$tracking" == "off" ]]; then
+    return
+  fi
+
+  local repo_flag
+  repo_flag=$(resolve_repo_flag)
+
   if [[ -n "$active_issue" && "$active_issue" != "None" ]]; then
     local issue_info
-    issue_info=$(gh issue view "$active_issue" --json title,labels,state --jq '"\(.state) | #'"$active_issue"' \(.title) [\(.labels | map(.name) | join(","))]"' 2>/dev/null || echo "")
+    issue_info=$(gh issue view "$active_issue" $repo_flag --json title,labels,state --jq '"\(.state) | #'"$active_issue"' \(.title) [\(.labels | map(.name) | join(","))]"' 2>/dev/null || echo "")
     if [[ -n "$issue_info" ]]; then
       context="[AutoTrack] Active issue: $issue_info"
+      if [[ -n "$repo_flag" ]]; then
+        context="$context (in hub)"
+      fi
     fi
   fi
 
@@ -98,7 +153,7 @@ handle_session_start() {
   sprint=$(get_state "sprint_label")
   if [[ -n "$sprint" && "$sprint" != "None" ]]; then
     local sprint_count
-    sprint_count=$(gh issue list --label "$sprint" --state open --json number --jq 'length' 2>/dev/null || echo "0")
+    sprint_count=$(gh issue list $repo_flag --label "$sprint" --state open --json number --jq 'length' 2>/dev/null || echo "0")
     context="$context | Sprint: $sprint ($sprint_count open)"
   fi
 
@@ -118,17 +173,25 @@ print(json.dumps(output))
 }
 
 handle_pre_compact() {
+  local tracking
+  tracking=$(get_state "tracking")
+  if [[ "$tracking" == "off" ]]; then return; fi
+
   local active_issue
   active_issue=$(get_state "active_issue")
 
   if [[ -n "$active_issue" && "$active_issue" != "None" ]]; then
-    # Save current work state as issue comment
+    local repo_flag
+    repo_flag=$(resolve_repo_flag)
     local diff_stat
     diff_stat=$(git diff --stat HEAD 2>/dev/null | tail -5 || echo "no changes")
     local branch
     branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+    local project
+    project=$(get_project_name)
 
-    gh issue comment "$active_issue" --body "**AutoTrack: Context snapshot (pre-compact)**
+    gh issue comment "$active_issue" $repo_flag --body "**AutoTrack: Context snapshot (pre-compact)**
+Project: \`$project\`
 Branch: \`$branch\`
 Changes:
 \`\`\`
@@ -138,14 +201,19 @@ $diff_stat
 }
 
 handle_task_completed() {
-  # When a Claude Code Task completes, check if we should sync to GitHub
+  local tracking
+  tracking=$(get_state "tracking")
+  if [[ "$tracking" == "off" ]]; then return; fi
+
   local active_issue
   active_issue=$(get_state "active_issue")
 
   if [[ -n "$active_issue" && "$active_issue" != "None" ]]; then
+    local repo_flag
+    repo_flag=$(resolve_repo_flag)
     local last_commit
     last_commit=$(git log -1 --oneline 2>/dev/null || echo "work completed")
-    gh issue comment "$active_issue" --body "Task completed: $last_commit" 2>/dev/null || true
+    gh issue comment "$active_issue" $repo_flag --body "Task completed: $last_commit" 2>/dev/null || true
   fi
 }
 

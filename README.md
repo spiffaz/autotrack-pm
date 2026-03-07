@@ -175,14 +175,52 @@ AutoTrack creates these labels on first use in a repo:
 | Dependencies | `gh` CLI | None | Go binary + MCP | None |
 | Learning curve | None | Commands | Commands | File conventions |
 
-## Configuration
+## Multi-Repo Support
 
-### Per-project state
+AutoTrack works across all your repos, including non-GitHub repos and work projects.
 
-AutoTrack creates `.claude/pm-state.json` automatically. Add it to `.gitignore`:
+### Hub Repo (Private)
 
-```bash
-echo ".claude/pm-state.json" >> .gitignore
+On first use, AutoTrack asks you to set a **private** hub repo (e.g. `your-username/tracker`). This repo catches issues from:
+- GitLab repos
+- Work repos where you don't want AI-created issues appearing
+- Directories without a git remote
+- Any repo set to `"hub"` tracking mode
+
+Hub issues are prefixed with the project name: `[my-api] Quiz timer bug`
+
+### Tracking Modes
+
+Each project has a `tracking` field in `.claude/pm-state.json`:
+
+| Mode | Where issues go | Use for |
+|---|---|---|
+| `"hub"` (default) | Your private hub repo | Work repos, GitLab, unknown repos |
+| `"local"` | Directly in the current repo | Personal GitHub repos you own |
+| `"off"` | Nowhere | Repos where you don't want any tracking |
+
+Change modes by telling Claude: "track issues locally" or "send issues to hub" or "turn off tracking"
+
+### Global Config
+
+`~/.claude/pm-config.json`:
+```json
+{
+  "hub_repo": "your-username/tracker",
+  "default_tracking": "hub"
+}
+```
+
+### Per-Project State
+
+`.claude/pm-state.json` (auto-created, add to `.gitignore`):
+```json
+{
+  "repo": "owner/repo",
+  "active_issue": 247,
+  "sprint_label": "sprint-4",
+  "tracking": "hub"
+}
 ```
 
 ### Customizing labels
