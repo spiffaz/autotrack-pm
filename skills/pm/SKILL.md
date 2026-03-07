@@ -62,6 +62,27 @@ Keep output compact: one line per issue.
 3. Apply sprint label: `gh issue edit <number> --add-label "sprint-<name>"`
 4. Update pm-state.json with sprint_label
 
+### When YOU discover a bug or issue while working:
+
+While implementing, reviewing, or refactoring code, you may notice problems
+unrelated to your current task (dead code, broken edge cases, missing error
+handling, performance issues, security concerns, test gaps, etc).
+
+1. Create a GitHub issue for it immediately:
+   `gh issue create --title "<what's wrong>" --label "bug,P2" --body "Discovered while working on #<active_issue>. <one-line description>"`
+2. Do NOT fix it now (unless it blocks your current work)
+3. Mention it briefly: "Found an issue with X, logged #XX."
+4. Continue your current task
+
+This keeps the backlog growing organically from real discoveries, not just
+user reports. Prioritize by severity: security issues get P1, cosmetic get P3.
+
+### When YOU finish work and tests fail on unrelated code:
+
+1. Log each unrelated failure as a separate issue with label "bug"
+2. Note the test name and error in the issue body
+3. Continue with your current task
+
 ### When the user says work is done / close / ship it:
 
 1. Close the active issue: `gh issue close <number> --comment "Done"`
