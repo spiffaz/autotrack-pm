@@ -175,6 +175,22 @@ gh label create wontfix --color "ffffff" --description "Dismissed, will not fix"
 gh label create not-a-bug --color "e4e669" --description "Intentional behavior" --force
 ```
 
+## Breadcrumbs (Session Memory)
+
+As you work, leave breadcrumbs so context survives compaction and new sessions.
+Append a single short line to `.claude/breadcrumbs.txt` when:
+- You choose an approach or change strategy ("switching from X to Y")
+- You complete a meaningful step ("auth middleware done, starting routes")
+- You hit a blocker or discover something important ("API rate-limits at 100/min")
+- You have uncommitted work in progress ("halfway through refactor of parser")
+
+Rules for breadcrumbs:
+- One line per breadcrumb, max ~15 words
+- Append with: `echo "your breadcrumb" >> .claude/breadcrumbs.txt`
+- Do NOT announce breadcrumbs to the user — they are silent
+- Do NOT write breadcrumbs for trivial steps (reading a file, running a command)
+- Aim for 3-6 breadcrumbs per task, not one per action
+
 ## Rules
 
 - NEVER ask "should I create an issue for this?" - just do it

@@ -45,10 +45,17 @@ You: "what's left to do?"
 
 ```
 Context compresses:
-  Hook: PreCompact saves current state to GitHub Issue comment
+  Hook: PreCompact saves a rich snapshot:
+    - Commits on branch (steps taken)
+    - Uncommitted files (in-progress work)
+    - Breadcrumbs (your reasoning trail)
+  Saved to: GitHub Issue comment + local .claude/last-session.txt
   Hook: SessionStart reloads it after compression
   You notice nothing. Work continues seamlessly.
 ```
+
+No GitHub issue? No commits? Still works. The snapshot saves locally
+and breadcrumbs capture your progress even before the first commit.
 
 ### New session? Handled.
 
@@ -93,6 +100,8 @@ Your GitHub Issues and project state files are preserved.
 Per-project (auto-created on first use):
 ```
 .claude/pm-state.json        # 3 fields: repo, active_issue, sprint_label
+.claude/breadcrumbs.txt      # Reasoning trail (auto-cleared on compact)
+.claude/last-session.txt     # Session snapshot (survives compaction)
 ```
 
 ## Architecture
@@ -109,8 +118,8 @@ The skill also activates on ANY work request (fix, build, refactor) to ensure tr
 
 | Hook | When | What it does |
 |---|---|---|
-| `SessionStart` | New session, resume, or post-compact | Loads active issue context |
-| `PreCompact` | Before context compression | Saves progress to GitHub Issue |
+| `SessionStart` | New session, resume, or post-compact | Loads active issue + last session snapshot + breadcrumbs |
+| `PreCompact` | Before context compression | Saves rich snapshot (commits, files, breadcrumbs) to GitHub Issue + local file |
 | `TaskCompleted` | Claude Code Task marked done | Syncs completion to GitHub |
 
 Hooks are shell scripts. They run outside the LLM. Zero token cost.

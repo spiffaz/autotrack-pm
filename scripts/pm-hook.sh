@@ -21,6 +21,8 @@ find_project_root() {
 PROJECT_ROOT="$(find_project_root)"
 STATE_FILE="$PROJECT_ROOT/.claude/pm-state.json"
 GLOBAL_CONFIG="$HOME/.claude/pm-config.json"
+BREADCRUMBS_FILE="$PROJECT_ROOT/.claude/breadcrumbs.txt"
+SESSION_FILE="$PROJECT_ROOT/.claude/last-session.txt"
 INPUT=$(cat)
 
 # Read state file
@@ -157,46 +159,131 @@ handle_session_start() {
     context="$context | Sprint: $sprint ($sprint_count open)"
   fi
 
+  # Load last session snapshot if it exists (survives compaction and no-issue sessions)
+  if [[ -f "$SESSION_FILE" ]]; then
+    local session_context
+    session_context=$(cat "$SESSION_FILE" 2>/dev/null || echo "")
+    if [[ -n "$session_context" ]]; then
+      context="$context
+$session_context"
+    fi
+  fi
+
+  # Load any in-progress breadcrumbs
+  if [[ -f "$BREADCRUMBS_FILE" ]]; then
+    local crumbs
+    crumbs=$(tail -20 "$BREADCRUMBS_FILE" 2>/dev/null || echo "")
+    if [[ -n "$crumbs" ]]; then
+      context="$context
+Breadcrumbs: $crumbs"
+    fi
+  fi
+
   if [[ -n "$context" ]]; then
     # Return context for injection via hookSpecificOutput
     python3 -c "
-import json
+import json, sys
+context = sys.stdin.read()
 output = {
   'hookSpecificOutput': {
     'hookEventName': 'SessionStart',
-    'additionalContext': '''$context'''
+    'additionalContext': context
   }
 }
 print(json.dumps(output))
-"
+" <<< "$context"
   fi
+}
+
+build_snapshot() {
+  local project branch commits modified_files staged_files breadcrumbs snapshot
+
+  project=$(get_project_name)
+  branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+
+  # Commits on this branch since diverging from main/master (the steps taken)
+  local base_branch
+  base_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo "main")
+  commits=$(git log --oneline "${base_branch}..HEAD" 2>/dev/null | head -15 || echo "")
+
+  # Uncommitted work: staged + unstaged changed files
+  modified_files=$(git diff --name-only 2>/dev/null || echo "")
+  staged_files=$(git diff --cached --name-only 2>/dev/null || echo "")
+
+  # Breadcrumbs (the thinking trail)
+  breadcrumbs=""
+  if [[ -f "$BREADCRUMBS_FILE" ]]; then
+    breadcrumbs=$(tail -20 "$BREADCRUMBS_FILE" 2>/dev/null || echo "")
+  fi
+
+  # Build the snapshot
+  snapshot="**AutoTrack: Session snapshot**
+Project: \`$project\` | Branch: \`$branch\`"
+
+  if [[ -n "$commits" ]]; then
+    snapshot="$snapshot
+
+Steps taken:
+\`\`\`
+$commits
+\`\`\`"
+  fi
+
+  # Combine modified and staged, deduplicate
+  local all_dirty
+  all_dirty=$(printf '%s\n%s' "$modified_files" "$staged_files" | sort -u | sed '/^$/d')
+  if [[ -n "$all_dirty" ]]; then
+    snapshot="$snapshot
+
+In progress (uncommitted):
+\`\`\`
+$all_dirty
+\`\`\`"
+  fi
+
+  if [[ -z "$commits" && -z "$all_dirty" ]]; then
+    snapshot="$snapshot
+No commits or file changes yet."
+  fi
+
+  if [[ -n "$breadcrumbs" ]]; then
+    snapshot="$snapshot
+
+Breadcrumbs:
+\`\`\`
+$breadcrumbs
+\`\`\`"
+  fi
+
+  echo "$snapshot"
 }
 
 handle_pre_compact() {
   local tracking
   tracking=$(get_state "tracking")
+
+  local snapshot
+  snapshot=$(build_snapshot)
+
+  # Always save locally (works without GitHub issues)
+  mkdir -p "$(dirname "$SESSION_FILE")"
+  echo "$snapshot" > "$SESSION_FILE"
+
+  # Clear breadcrumbs after capturing
+  if [[ -f "$BREADCRUMBS_FILE" ]]; then
+    rm -f "$BREADCRUMBS_FILE"
+  fi
+
   if [[ "$tracking" == "off" ]]; then return; fi
 
+  # Also post to GitHub issue if one is active
   local active_issue
   active_issue=$(get_state "active_issue")
 
   if [[ -n "$active_issue" && "$active_issue" != "None" ]]; then
     local repo_flag
     repo_flag=$(resolve_repo_flag)
-    local diff_stat
-    diff_stat=$(git diff --stat HEAD 2>/dev/null | tail -5 || echo "no changes")
-    local branch
-    branch=$(git branch --show-current 2>/dev/null || echo "unknown")
-    local project
-    project=$(get_project_name)
-
-    gh issue comment "$active_issue" $repo_flag --body "**AutoTrack: Context snapshot (pre-compact)**
-Project: \`$project\`
-Branch: \`$branch\`
-Changes:
-\`\`\`
-$diff_stat
-\`\`\`" 2>/dev/null || true
+    gh issue comment "$active_issue" $repo_flag --body "$snapshot" 2>/dev/null || true
   fi
 }
 
